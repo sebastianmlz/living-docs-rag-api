@@ -1,0 +1,66 @@
+[project]
+name = "ldr"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Sebastian Mendez Lopez", email = "sebamendex11@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.162.0",
+    "fastembed>=0.9.1",
+    "google-genai>=2.34.0",
+    "httpx>=0.28.1",
+    "pgvector>=0.5.1",
+    "psycopg[binary]>=3.3.6",
+    "pydantic-settings>=2.16.2",
+    "sse-starlette>=3.6.0",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[project.scripts]
+ldr = "ldr:main"
+
+[build-system]
+requires = ["uv_build>=0.13.6,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "poethepoet>=0.49.0",
+    "pre-commit>=4.7.0",
+    "pytest>=9.2.0",
+    "ruff>=0.17.3",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# E/W estilo, F errores, I imports, UP sintaxis moderna, B bugs comunes,
+# SIM simplificaciones, N nombres, S seguridad (reglas de bandit).
+select = ["E", "W", "F", "I", "UP", "B", "SIM", "N", "S"]
+# E501 (largo de línea): ruff format ya lo controla en el código; solo quedarían comentarios.
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"] # assert está bien en tests
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.poe.tasks]
+up = { cmd = "docker compose up -d --wait", help = "Levanta Postgres y espera hasta que responda" }
+down = { cmd = "docker compose down", help = "Apaga Postgres (los datos se conservan)" }
+migrate = { cmd = "python -m ldr.migrate", help = "Aplica las migraciones pendientes" }
+ingest = { cmd = "python -m ldr.ingest", help = "Ingesta incremental del corpus (acepta --limit N y --force)" }
+search = { cmd = "python -m ldr.retrieve", help = "Compara búsqueda vectorial, léxica e híbrida: poe search \"pregunta\"" }
+api = { cmd = "uvicorn ldr.api.main:app --reload", help = "Servidor de desarrollo en :8000" }
+lint = { cmd = "ruff check .", help = "Linter" }
+test = { cmd = "pytest", help = "Tests (requiere poe up)" }
+fmt = { sequence = [{ cmd = "ruff format ." }, { cmd = "ruff check --fix ." }], help = "Formatea y corrige" }
+check = { sequence = [{ ref = "lint" }, { cmd = "ruff format --check ." }, { ref = "test" }], help = "Lo mismo que corre el CI" }

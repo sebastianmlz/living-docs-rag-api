@@ -1,0 +1,21 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secretos y caches
+.env
+.pytest_cache/
+.ruff_cache/
+
+# Corpus descargado (se clona aparte, no es parte del repo)
+data/
+
+# Modelos descargados (pesan GB)
+.cache/

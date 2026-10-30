@@ -1,0 +1,22 @@
+services:
+  db:
+    # Postgres 16 oficial + la extensión pgvector ya compilada.
+    image: pgvector/pgvector:pg16
+    container_name: ldr-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ldr}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ldr}
+      POSTGRES_DB: ${POSTGRES_DB:-ldr}
+    ports:
+      # 5433 en tu máquina para no chocar con un Postgres local en 5432.
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
