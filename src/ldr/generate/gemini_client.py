@@ -1,11 +1,12 @@
 import logging
 import random
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 import httpx
 from google import genai
 from google.genai import errors, types
+from pydantic import BaseModel
 
 from ldr.generate.llm import Delta, LLMUnavailableError, Usage
 
@@ -68,15 +69,33 @@ class GeminiClient:
                 usage=Usage(usage.prompt_token_count or 0, usage.candidates_token_count or 0)
             )
 
+    def generate_json[T: BaseModel](
+        self, system: str, user: str, schema: type[T], *, temperature: float = 0.2
+    ) -> T:
+        """Respuesta completa (sin streaming) obligada a cumplir `schema`: Gemini devuelve JSON válido
+        para ese modelo de Pydantic y aquí se valida. Lo usan tareas internas, como generar los evals.
+        """
+        config = types.GenerateContentConfig(
+            system_instruction=system,
+            temperature=temperature,
+            response_mime_type="application/json",
+            response_schema=schema,
+        )
+
+        def call() -> T:
+            response = self._client.models.generate_content(
+                model=self.model, contents=user, config=config
+            )
+            return schema.model_validate_json(response.text or "")
+
+        return self._with_retries(call)
+
     def _open_stream(
         self, user: str, config: types.GenerateContentConfig
     ) -> Iterator[types.GenerateContentResponse]:
-        """Abre el stream con reintentos y backoff exponencial con jitter: 1 s, 2 s, ... (± azar).
+        """El error, si ocurre, llega al pedir el PRIMER pedazo: por eso se reintenta hasta obtenerlo."""
 
-        El jitter evita que muchos clientes que fallaron a la vez reintenten todos en el mismo instante.
-        El error, si ocurre, llega al pedir el PRIMER pedazo: por eso se reintenta hasta obtenerlo.
-        """
-        for attempt in range(1, self._max_attempts + 1):
+        def call() -> Iterator[types.GenerateContentResponse]:
             stream = self._client.models.generate_content_stream(
                 model=self.model, contents=user, config=config
             )
@@ -84,6 +103,18 @@ class GeminiClient:
                 first = next(stream)
             except StopIteration:
                 return iter(())
+            return _prepend(first, stream)
+
+        return self._with_retries(call)
+
+    def _with_retries[T](self, call: Callable[[], T]) -> T:
+        """Reintenta con backoff exponencial con jitter: 1 s, 2 s, ... (± azar).
+
+        El jitter evita que muchos clientes que fallaron a la vez reintenten todos en el mismo instante.
+        """
+        for attempt in range(1, self._max_attempts + 1):
+            try:
+                return call()
             except (errors.APIError, httpx.TimeoutException) as exc:
                 retryable, reason = _failure(exc)
                 if not retryable or attempt == self._max_attempts:
@@ -93,8 +124,6 @@ class GeminiClient:
                 delay = self._base_delay * 2 ** (attempt - 1) * random.uniform(0.75, 1.25)  # noqa: S311
                 logger.warning("gemini %s, reintento %d en %.1fs", reason, attempt, delay)
                 time.sleep(delay)
-                continue
-            return _prepend(first, stream)
         raise AssertionError("unreachable")
 
 
