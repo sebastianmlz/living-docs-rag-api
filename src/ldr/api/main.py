@@ -71,7 +71,10 @@ def get_services(request: Request) -> Services:
 
 class AskRequest(BaseModel):
     question: str = Field(min_length=3, max_length=1000)
-    mode: Mode = "hybrid"
+    # vector y no hybrid: en los evals (evals/results/20261122-131606.json) vector sacó 0.89 de recall@5
+    # contra 0.76 de hybrid y nunca perdió en una pregunta. La léxica es débil (y casi nula en
+    # español, porque el corpus está en inglés), y la fusión RRF le metía ese ruido.
+    mode: Mode = "vector"
     strategy: str = Field(default="markdown", pattern="^(markdown|recursive)$")
     k: int = Field(default=5, ge=1, le=10)
     rerank: bool = False
