@@ -61,6 +61,7 @@ ingest = { cmd = "python -m ldr.ingest", help = "Ingesta incremental del corpus 
 search = { cmd = "python -m ldr.retrieve", help = "Compara búsqueda vectorial, léxica e híbrida: poe search \"pregunta\"" }
 golden = { cmd = "python -m ldr.evals.golden_gen", help = "Genera candidatos del golden set con Gemini (para revisar a mano)" }
 evals = { cmd = "python -m ldr.evals.run", help = "Mide el retriever con el golden set (requiere poe up)" }
+answers = { cmd = "python -m ldr.evals.answers", help = "Respuestas de punta a punta y abstención del LLM (requiere poe up y GEMINI_API_KEY)" }
 api = { cmd = "uvicorn ldr.api.main:app --reload", help = "Servidor de desarrollo en :8000" }
 lint = { cmd = "ruff check .", help = "Linter" }
 test = { cmd = "pytest", help = "Tests (requiere poe up)" }

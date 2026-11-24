@@ -123,7 +123,7 @@ def latency(values: list[float]) -> dict:
     return {"mean": round(fmean(values), 1), "p50": round(median(values), 1)}
 
 
-def _golden_hash(path: Path) -> str:
+def golden_hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
 
 
@@ -187,7 +187,7 @@ def main() -> None:
     payload = {
         "created": created.isoformat(timespec="seconds"),
         "complete": False,
-        "golden": {"path": args.golden.as_posix(), "sha256": _golden_hash(args.golden)},
+        "golden": {"path": args.golden.as_posix(), "sha256": golden_hash(args.golden)},
         "embedding_model": settings.embedding_model,
         "reranker_model": settings.reranker_model,
         "k": K,
