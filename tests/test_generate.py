@@ -14,6 +14,20 @@ def api_error(code: int) -> errors.APIError:
     return errors.APIError(code, {"error": {"status": "TEST", "message": "test"}})
 
 
+def quota_error(quota_id: str, retry_delay: str) -> errors.APIError:
+    """Un 429 como los que manda Gemini: qué cuota se violó y cuánto esperar."""
+    details = [
+        {
+            "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+            "violations": [{"quotaId": quota_id}],
+        },
+        {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": retry_delay},
+    ]
+    return errors.APIError(
+        429, {"error": {"status": "RESOURCE_EXHAUSTED", "message": "quota", "details": details}}
+    )
+
+
 def chunk(text: str | None, usage=None) -> SimpleNamespace:
     return SimpleNamespace(text=text, usage_metadata=usage)
 
@@ -67,6 +81,31 @@ def test_gives_up_after_max_attempts() -> None:
     with pytest.raises(LLMUnavailableError):
         list(client.stream("system", "user"))
     assert models.calls == 3
+
+
+def test_daily_quota_is_not_retried_and_says_when_it_resets() -> None:
+    client, models = gemini_with(
+        [
+            [quota_error("GenerateRequestsPerDayPerProjectPerModel-FreeTier", "32023s")],
+            [chunk("nunca")],
+        ]
+    )
+
+    with pytest.raises(LLMUnavailableError, match="cuota diaria agotada, se renueva en ~9 h"):
+        list(client.stream("system", "user"))
+    assert models.calls == 1
+
+
+def test_per_minute_quota_is_still_retried() -> None:
+    client, models = gemini_with(
+        [
+            [quota_error("GenerateRequestsPerMinutePerProjectPerModel-FreeTier", "20s")],
+            [chunk("ok")],
+        ]
+    )
+
+    assert "".join(d.text for d in client.stream("system", "user")) == "ok"
+    assert models.calls == 2
 
 
 def test_timeout_is_retried() -> None:

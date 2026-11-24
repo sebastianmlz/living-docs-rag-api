@@ -18,10 +18,33 @@ logger = logging.getLogger(__name__)
 RETRYABLE = {429, 500, 503, 504}
 
 
+def _quota(exc: errors.APIError) -> tuple[str | None, str | None]:
+    """(cuota violada, espera sugerida) que Gemini manda en el detalle de un 429.
+
+    Ejemplo: ("GenerateRequestsPerDayPerProjectPerModel-FreeTier", "32023s").
+    """
+    error = exc.details.get("error", {}) if isinstance(exc.details, dict) else {}
+    details = error.get("details") or []
+    quota = next(
+        (v["quotaId"] for d in details for v in d.get("violations", []) if v.get("quotaId")), None
+    )
+    delay = next((d["retryDelay"] for d in details if d.get("retryDelay")), None)
+    return quota, delay
+
+
 def _failure(exc: Exception) -> tuple[bool, str]:
     """(¿vale la pena reintentar?, descripción corta) de un error de Gemini."""
     if isinstance(exc, errors.APIError):
-        return exc.code in RETRYABLE, f"{exc.code} {exc.status}"
+        reason = f"{exc.code} {exc.status}"
+        quota, delay = _quota(exc) if exc.code == 429 else (None, None)
+        if quota:
+            reason += f" ({quota})"
+        if quota and "PerDay" in quota:
+            # La cuota del DÍA no se recupera en segundos: reintentar solo hace esperar al usuario.
+            if delay and delay.endswith("s"):
+                reason += f": cuota diaria agotada, se renueva en ~{float(delay[:-1]) / 3600:.0f} h"
+            return False, reason
+        return exc.code in RETRYABLE, reason
     if isinstance(exc, httpx.TimeoutException):
         return True, "timeout"
     raise exc
