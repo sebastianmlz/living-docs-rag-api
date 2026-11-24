@@ -8,7 +8,9 @@ recall/precision/MRR/nDCG; las no respondibles solo guardan el puntaje del prime
 lo que se usará para calibrar el umbral.
 
 El resultado queda en evals/results/<fecha>.json con el hash del golden set usado: dos corridas solo
-son comparables si midieron con el mismo examen.
+son comparables si midieron con el mismo examen. El archivo se reescribe al terminar CADA
+configuración ("complete": false mientras falten), así que si la corrida se corta (las del reranker
+tardan unos 20 min cada una) se conserva lo ya medido.
 """
 
 import argparse
@@ -125,6 +127,17 @@ def _golden_hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
 
 
+def save(payload: dict, out: Path) -> None:
+    """Escribe el JSON de forma atómica: primero a un .tmp y después lo renombra encima.
+
+    Si el proceso muere a mitad de la escritura, queda el archivo anterior entero (nunca uno a
+    medias que no se puede leer).
+    """
+    tmp = out.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(out)
+
+
 def print_table(results: list[dict]) -> None:
     cols = ["recall@5", "mrr", "ndcg@5", "precision@5"]
     header = f"{'configuración':<28}" + "".join(f"{c:>12}" for c in cols)
@@ -165,17 +178,34 @@ def main() -> None:
     if any(c.rerank for c in configs):
         reranker = FastembedReranker(settings.reranker_model, settings.models_dir)
 
-    results = []
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    created = datetime.now()
+    out = args.out_dir / f"{created:%Y%m%d-%H%M%S}.json"
+    results: list[dict] = []
+    payload = {
+        "created": created.isoformat(timespec="seconds"),
+        "complete": False,
+        "golden": {"path": args.golden.as_posix(), "sha256": _golden_hash(args.golden)},
+        "embedding_model": settings.embedding_model,
+        "reranker_model": settings.reranker_model,
+        "k": K,
+        "candidates": Retriever(embedder).candidates,
+        "embed_query_ms": round(embed_ms, 1),
+        "unreachable_units": {},
+        "results": results,  # la misma lista que se va llenando abajo
+    }
+
     with connect() as conn:
-        unreachable = {}
         for strategy in STRATEGIES:
             rows = conn.execute(
                 "SELECT d.path, c.content FROM chunks c JOIN documents d ON d.id = c.document_id "
                 "WHERE c.strategy = %s AND d.deleted_at IS NULL",
                 (strategy,),
             ).fetchall()
-            unreachable[strategy] = unreachable_units(rows, items)
-            print(f"{strategy}: {len(unreachable[strategy])} evidencias inalcanzables")
+            missing = unreachable_units(rows, items)
+            payload["unreachable_units"][strategy] = missing
+            print(f"{strategy}: {len(missing)} evidencias inalcanzables")
+        print(f"Guardando en {out} a medida que termina cada configuración")
 
         for config in configs:
             retriever = Retriever(
@@ -187,27 +217,16 @@ def main() -> None:
             result = run_config(conn, retriever, config, items)
             print(f"  {config.name}: {time.perf_counter() - start:.0f}s")
             results.append({"config": {**asdict(config), "name": config.name}, **result})
+            save(payload, out)
+
+    payload["complete"] = True
+    save(payload, out)
 
     print()
     print_table(results)
     print(
         f"\n(ms sin el embedding de la pregunta, que cuesta {embed_ms:.0f} ms y se calculó una vez)"
     )
-
-    args.out_dir.mkdir(parents=True, exist_ok=True)
-    out = args.out_dir / f"{datetime.now():%Y%m%d-%H%M%S}.json"
-    payload = {
-        "created": datetime.now().isoformat(timespec="seconds"),
-        "golden": {"path": args.golden.as_posix(), "sha256": _golden_hash(args.golden)},
-        "embedding_model": settings.embedding_model,
-        "reranker_model": settings.reranker_model,
-        "k": K,
-        "candidates": Retriever(embedder).candidates,
-        "embed_query_ms": round(embed_ms, 1),
-        "unreachable_units": unreachable,
-        "results": results,
-    }
-    out.write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"Resultados en {out}")
 
 
