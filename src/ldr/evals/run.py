@@ -131,10 +131,12 @@ def save(payload: dict, out: Path) -> None:
     """Escribe el JSON de forma atómica: primero a un .tmp y después lo renombra encima.
 
     Si el proceso muere a mitad de la escritura, queda el archivo anterior entero (nunca uno a
-    medias que no se puede leer).
+    medias que no se puede leer). Termina en salto de línea y usa \n también en Windows, como
+    esperan los hooks de pre-commit y git.
     """
     tmp = out.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
+    text = json.dumps(payload, ensure_ascii=False, indent=1) + "\n"
+    tmp.write_text(text, encoding="utf-8", newline="\n")
     tmp.replace(out)
 
 

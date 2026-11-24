@@ -8,6 +8,8 @@ repos:
       - id: check-yaml
       - id: check-toml
       - id: check-added-large-files
+        # Los resultados de evals pesan ~800 KB en disco, pero git los guarda comprimidos (~70 KB).
+        exclude: ^evals/results/
       - id: detect-private-key
 
   # Ruff local: usa la misma versión fijada en uv.lock, no una distinta.
